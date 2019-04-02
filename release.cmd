@@ -1,4 +1,4 @@
-uglifyjs.cmd --compress --mangle --output codemirror.min.js ^
+uglifyjs.cmd --compress --mangle --output lib/codemirror.min.js ^
 lib\codemirror.js ^
 addon\mode\overlay.js ^
 addon\mode\simple.js ^
