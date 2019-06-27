@@ -14,14 +14,14 @@
     "lib": "./lib"
   },
   "scripts": {
-    "build": "./node_modules/.bin/rollup -c",
-    "watch": "./node_modules/.bin/rollup -w -c",
+    "build": "rollup -c",
+    "watch": "rollup -w -c",
     "prepare": "npm run-script build",
     "test": "node ./test/run.js",
     "lint": "bin/lint",
-    "install": "npm run-script build && node release"
+    "prepack": "npm run-script build && node release"
   },
-  "dependencies": {
+  "devDependencies": {
     "blint": "^1",
     "node-static": "0.7.11",
     "phantomjs-prebuilt": "^2.1.12",
