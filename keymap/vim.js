@@ -85,6 +85,18 @@
     { keys: '<C-c>', type: 'keyToKey', toKeys: '<Esc>' },
     { keys: '<C-[>', type: 'keyToKey', toKeys: '<Esc>', context: 'insert' },
     { keys: '<C-c>', type: 'keyToKey', toKeys: '<Esc>', context: 'insert' },
+
+    // Vim Surround Testbench
+    { keys: 's\'<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\'' } },
+    { keys: 's\"<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\"' } },
+    { keys: 's\`<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\`' } },
+    { keys: 's\(<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\(' } },
+    { keys: 's\)<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\)' } },
+    { keys: 's\{<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\{' } },
+    { keys: 's\}<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\}' } },
+    { keys: 's\[<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\[' } },
+    { keys: 's\]<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\]' } },
+
     { keys: 's', type: 'keyToKey', toKeys: 'cl', context: 'normal', excludeOperator: ['change'] },
     { keys: 's', type: 'keyToKey', toKeys: 'c', context: 'visual'},
     { keys: 'S', type: 'keyToKey', toKeys: 'cc', context: 'normal' },
@@ -2813,7 +2825,65 @@
       indent: function(cm, actionArgs) {
         cm.indentLine(cm.getCursor().line, actionArgs.indentRight);
       },
-      exitInsertMode: exitInsertMode
+      exitInsertMode: exitInsertMode,
+      vimChangeSurround: function (cm, actionArgs) {
+        var character = actionArgs.selectedCharacter;
+        var cursor = cm.getCursor()
+
+        var openCs = ['{', '(', '[']
+        var mirroredPairs = {'(': ')', ')': '(',
+                             '[': ']', ']': '[',
+                             '\'': true, '"': true, '`': true};
+        var multilinePairs = { '{': '}', '}': '{' };
+
+        function transformCharacterPair (character) {
+          var openC, closeC
+          if (typeof mirroredPairs[character] === 'boolean') {
+            openC = closeC = character
+          } else {
+            if (openCs.includes(character)) {
+              openC = character
+              closeC = mirroredPairs[character]
+            } else {
+              openC = mirroredPairs[character]
+              closeC = character
+            }
+          }
+          return [openC, closeC]
+        }
+
+        function replaceSurround (cm, searchCharacter, replaceCharacter) {
+          var searchPair = transformCharacterPair(searchCharacter)
+          var replacePair = transformCharacterPair(replaceCharacter)
+
+          var openIndex, closeIndex, lineContent = cm.getLine(cursor.line)
+          openIndex = lineContent.slice(0, cursor.ch).lastIndexOf(searchPair[0])
+          closeIndex = lineContent.slice(cursor.ch).indexOf(searchPair[1])
+          
+          if (openIndex === -1 || closeIndex === -1) {
+            return
+          }
+
+          var inner = lineContent.slice(openIndex + 1, closeIndex + cursor.ch)
+
+          var openPos = { ch: openIndex, line: cursor.line }
+          var closePos = { ch: cursor.ch + closeIndex + 1, line: cursor.line }
+
+          cm.replaceRange(replacePair[0] + inner + replacePair[1], openPos, closePos)
+        }
+
+        function replaceMultilineSurround () {
+            
+        }
+
+        if (mirroredPairs[actionArgs.search]) {
+          replaceSurround(cm, actionArgs.search, character)
+        } else if (multilinePairs[actionArgs.search]) {
+          replaceMultilineSurround(cm, actionArgs.search, character)
+        }
+
+        cm.setCursor(cursor)
+      }
     };
 
     function defineAction(name, fn) {
@@ -2860,7 +2930,7 @@
         var command = keyMap[i];
         if (context == 'insert' && command.context != 'insert' ||
             command.context && command.context != context ||
-            inputState.operator && command.type == 'action' ||
+            inputState.operator && command.type == 'action' && !command.forceMatch ||
             (command.excludeOperator && command.excludeOperator.includes(inputState.operator)) ||
             !(match = commandMatch(keys, command.keys))) { continue; }
         if (match == 'partial') { partial.push(command); }
