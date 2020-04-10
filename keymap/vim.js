@@ -85,7 +85,7 @@
     { keys: '<C-c>', type: 'keyToKey', toKeys: '<Esc>' },
     { keys: '<C-[>', type: 'keyToKey', toKeys: '<Esc>', context: 'insert' },
     { keys: '<C-c>', type: 'keyToKey', toKeys: '<Esc>', context: 'insert' },
-    { keys: 's', type: 'keyToKey', toKeys: 'cl', context: 'normal' },
+    { keys: 's', type: 'keyToKey', toKeys: 'cl', context: 'normal', excludeOperator: ['change'] },
     { keys: 's', type: 'keyToKey', toKeys: 'c', context: 'visual'},
     { keys: 'S', type: 'keyToKey', toKeys: 'cc', context: 'normal' },
     { keys: 'S', type: 'keyToKey', toKeys: 'VdO', context: 'visual' },
@@ -2861,6 +2861,7 @@
         if (context == 'insert' && command.context != 'insert' ||
             command.context && command.context != context ||
             inputState.operator && command.type == 'action' ||
+            (command.excludeOperator && command.excludeOperator.includes(inputState.operator)) ||
             !(match = commandMatch(keys, command.keys))) { continue; }
         if (match == 'partial') { partial.push(command); }
         if (match == 'full') { full.push(command); }
