@@ -90,6 +90,7 @@
     { keys: 's\'<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\'' } },
     { keys: 's\"<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\"' } },
     { keys: 's\`<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\`' } },
+    { keys: 's\*<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\*' } },
     { keys: 's\(<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\(' } },
     { keys: 's\)<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\)' } },
     { keys: 's\{<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\{' } },
@@ -2833,7 +2834,7 @@
         var openCs = ['{', '(', '[']
         var mirroredPairs = {'(': ')', ')': '(',
                              '[': ']', ']': '[',
-                             '\'': true, '"': true, '`': true};
+                             '\'': true, '"': true, '`': true, '*': true};
         var multilinePairs = { '{': '}', '}': '{' };
 
         function transformCharacterPair (character) {
@@ -2866,10 +2867,19 @@
 
           var inner = lineContent.slice(openIndex + 1, closeIndex + cursor.ch)
 
+          var addSpace = openCs.includes(replaceCharacter)
+
           var openPos = { ch: openIndex, line: cursor.line }
           var closePos = { ch: cursor.ch + closeIndex + 1, line: cursor.line }
 
-          cm.replaceRange(replacePair[0] + inner + replacePair[1], openPos, closePos)
+          var text
+          if (addSpace) {
+            text = replacePair[0] + ' ' + inner + ' ' + replacePair[1]
+          } else {
+            text = replacePair[0] + inner + replacePair[1]
+          }
+
+          cm.replaceRange(text, openPos, closePos)
         }
 
         function replaceMultilineSurround () {
