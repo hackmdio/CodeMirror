@@ -2842,11 +2842,13 @@
           if (typeof mirroredPairs[character] === 'boolean') {
             openC = closeC = character
           } else {
+            let pairs = mirroredPairs[character] ? mirroredPairs : multilinePairs
+
             if (openCs.includes(character)) {
               openC = character
-              closeC = mirroredPairs[character]
+              closeC = pairs[character]
             } else {
-              openC = mirroredPairs[character]
+              openC = pairs[character]
               closeC = character
             }
           }
@@ -2882,8 +2884,20 @@
           cm.replaceRange(text, openPos, closePos)
         }
 
-        function replaceMultilineSurround () {
-            
+        function replaceCharacterAt (cm, character, position) {
+          var pos = {
+            ch: position.ch + 1,
+            line: position.line
+          }
+          cm.replaceRange(character, position, pos)
+        }
+
+        function replaceMultilineSurround (cm, searchCharacter, replaceCharacter) {
+          var tmp = selectCompanionObject(cm, cursor, searchCharacter, true)  
+          const replacePair = transformCharacterPair(replaceCharacter)
+
+          replaceCharacterAt(cm, replacePair[0], tmp.start)
+          replaceCharacterAt(cm, replacePair[1], { ch: tmp.end.ch - 1, line: tmp.end.line })
         }
 
         if (mirroredPairs[actionArgs.search]) {
