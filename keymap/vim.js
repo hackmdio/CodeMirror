@@ -52,7 +52,7 @@
     el.style.position = 'absolute';                 
     el.style.left = '-9999px';                      // Move outside the screen to make it invisible
     document.body.appendChild(el);                  // Append the <textarea> element to the HTML document
-    const selected =            
+    var selected =            
       document.getSelection().rangeCount > 0        // Check if there is any content selected previously
         ? document.getSelection().getRangeAt(0)     // Store selection if found
         : false;                                    // Mark as false to know no selection existed before
@@ -2900,7 +2900,7 @@
 
         function replaceMultilineSurround (cm, searchCharacter, replaceCharacter) {
           var tmp = selectCompanionObject(cm, cursor, searchCharacter, true)  
-          const replacePair = transformCharacterPair(replaceCharacter)
+          var replacePair = transformCharacterPair(replaceCharacter)
 
           if (!replacePair) {
             return
