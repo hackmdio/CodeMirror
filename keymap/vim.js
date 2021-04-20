@@ -52,7 +52,7 @@
     el.style.position = 'absolute';                 
     el.style.left = '-9999px';                      // Move outside the screen to make it invisible
     document.body.appendChild(el);                  // Append the <textarea> element to the HTML document
-    const selected =            
+    var selected =            
       document.getSelection().rangeCount > 0        // Check if there is any content selected previously
         ? document.getSelection().getRangeAt(0)     // Store selection if found
         : false;                                    // Mark as false to know no selection existed before
@@ -85,7 +85,20 @@
     { keys: '<C-c>', type: 'keyToKey', toKeys: '<Esc>' },
     { keys: '<C-[>', type: 'keyToKey', toKeys: '<Esc>', context: 'insert' },
     { keys: '<C-c>', type: 'keyToKey', toKeys: '<Esc>', context: 'insert' },
-    { keys: 's', type: 'keyToKey', toKeys: 'cl', context: 'normal' },
+
+    // Vim Surround Testbench
+    { keys: 's\'<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\'' } },
+    { keys: 's\"<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\"' } },
+    { keys: 's\`<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\`' } },
+    { keys: 's\*<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\*' } },
+    { keys: 's\(<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\(' } },
+    { keys: 's\)<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\)' } },
+    { keys: 's\{<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\{' } },
+    { keys: 's\}<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\}' } },
+    { keys: 's\[<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\[' } },
+    { keys: 's\]<character>', type: 'action', forceMatch: true, action: 'vimChangeSurround', actionArgs: { search: '\]' } },
+
+    { keys: 's', type: 'keyToKey', toKeys: 'cl', context: 'normal', excludeOperator: ['change'] },
     { keys: 's', type: 'keyToKey', toKeys: 'c', context: 'visual'},
     { keys: 'S', type: 'keyToKey', toKeys: 'cc', context: 'normal' },
     { keys: 'S', type: 'keyToKey', toKeys: 'VdO', context: 'visual' },
@@ -2846,7 +2859,157 @@
       indent: function(cm, actionArgs) {
         cm.indentLine(cm.getCursor().line, actionArgs.indentRight);
       },
-      exitInsertMode: exitInsertMode
+      exitInsertMode: exitInsertMode,
+      vimChangeSurround: function (cm, actionArgs) {
+        var character = actionArgs.selectedCharacter;
+        var cursor = cm.getCursor()
+
+        var openCs = ['{', '(', '[']
+        var mirroredPairs = {'(': ')', ')': '(',
+                             '[': ']', ']': '[',
+                             '\'': true, '"': true, '`': true, '*': true};
+        var multilinePairs = { '{': '}', '}': '{' };
+
+        function transformCharacterPair (character) {
+          var openC, closeC
+          if (typeof mirroredPairs[character] === 'boolean') {
+            openC = closeC = character
+          } else {
+            let pairs = mirroredPairs[character] ? mirroredPairs : multilinePairs
+
+            if (openCs.includes(character)) {
+              openC = character
+              closeC = pairs[character]
+            } else {
+              openC = pairs[character]
+              closeC = character
+            }
+          }
+
+          if (!openC || !closeC) {
+            return null
+          } else {
+            return [openC, closeC]
+          }
+        }
+
+        function replaceSurround (cm, searchCharacter, replacePair, addSpace = false) {
+          var searchPair = transformCharacterPair(searchCharacter)
+
+          if (!replacePair) {
+            return
+          }
+
+          var openIndex, closeIndex, lineContent = cm.getLine(cursor.line)
+          openIndex = lineContent.slice(0, cursor.ch).lastIndexOf(searchPair[0])
+          closeIndex = lineContent.slice(cursor.ch).indexOf(searchPair[1])
+          
+          if (openIndex === -1 || closeIndex === -1) {
+            return
+          }
+
+          var inner = lineContent.slice(openIndex + 1, closeIndex + cursor.ch)
+
+          var openPos = { ch: openIndex, line: cursor.line }
+          var closePos = { ch: cursor.ch + closeIndex + 1, line: cursor.line }
+
+          var text
+          if (addSpace) {
+            text = replacePair[0] + ' ' + inner + ' ' + replacePair[1]
+          } else {
+            text = replacePair[0] + inner + replacePair[1]
+          }
+
+          cm.replaceRange(text, openPos, closePos)
+        }
+
+        function replaceCharacterAt (cm, character, position) {
+          var pos = {
+            ch: position.ch + 1,
+            line: position.line
+          }
+          cm.replaceRange(character, position, pos)
+        }
+
+        function replaceMultilineSurround (cm, searchCharacter, replaceCharacter) {
+          var tmp = selectCompanionObject(cm, cursor, searchCharacter, true)  
+          var replacePair = transformCharacterPair(replaceCharacter)
+
+          if (!replacePair) {
+            return
+          }
+
+          replaceCharacterAt(cm, replacePair[0], tmp.start)
+          replaceCharacterAt(cm, replacePair[1], { ch: tmp.end.ch - 1, line: tmp.end.line })
+        }
+
+        if (character === '<') {
+          // editing tags object
+          showPrompt(cm, { 
+            onCloseDialog: function (inputRef) {
+              var input = inputRef.getElementsByTagName("input")[0].value
+              // Give the prompt some time to close so that if processCommand shows
+              // an error, the elements don't overlap.
+              vimGlobalState.exCommandHistoryController.pushInput(input + '>');
+              vimGlobalState.exCommandHistoryController.reset();
+              
+              input = '<' + input + '>';
+              var openTagRegex = /<([A-Za-z][A-Za-z0-9]*)\b[^>]*>/
+              var match = input.match(openTagRegex)
+              if (!match) {
+                return
+              }
+
+              replaceSurround(cm, actionArgs.search, [
+                input,
+                '</' + match[1] + '>'                
+              ])
+            },
+            prefix: '<', 
+            onKeyDown: function (e, input, close) {
+              var keyName = CodeMirror.keyName(e), up, offset;
+              if (keyName == 'Esc' || keyName == 'Ctrl-C' || keyName == 'Ctrl-[' ||
+                  (keyName == 'Backspace' && input == '')) {
+                vimGlobalState.exCommandHistoryController.pushInput(input);
+                vimGlobalState.exCommandHistoryController.reset();
+                CodeMirror.e_stop(e);
+                clearInputState(cm);
+                close();
+                cm.focus();
+              }
+              if (e.key === '>') {
+                close(input)
+                CodeMirror.e_stop(e);
+                close()
+              } else if (keyName == 'Up' || keyName == 'Down') {
+                CodeMirror.e_stop(e);
+                up = keyName == 'Up' ? true : false;
+                offset = e.target ? e.target.selectionEnd : 0;
+                input = vimGlobalState.exCommandHistoryController.nextMatch(input, up) || '';
+                close(input);
+                if (offset && e.target) e.target.selectionEnd = e.target.selectionStart = Math.min(offset, e.target.value.length);
+              } else if (keyName == 'Ctrl-U') {
+                // Ctrl-U clears input.
+                CodeMirror.e_stop(e);
+                close('');
+              } else {
+                if ( keyName != 'Left' && keyName != 'Right' && keyName != 'Ctrl' && keyName != 'Alt' && keyName != 'Shift')
+                  vimGlobalState.exCommandHistoryController.reset();
+              }
+            }
+          });
+        } else {
+          if (mirroredPairs[actionArgs.search]) {
+            var replacePair = transformCharacterPair(character)
+            var addSpace = openCs.includes(character)
+            replaceSurround(cm, actionArgs.search, replacePair, addSpace)
+          } else if (multilinePairs[actionArgs.search]) {
+            replaceMultilineSurround(cm, actionArgs.search, character)
+          }
+  
+          cm.setCursor(cursor)
+        }
+      }
     };
 
     function defineAction(name, fn) {
@@ -2894,7 +3057,8 @@
         var command = keyMap[i];
         if (context == 'insert' && command.context != 'insert' ||
             command.context && command.context != context ||
-            inputState.operator && command.type == 'action' ||
+            inputState.operator && command.type == 'action' && !command.forceMatch ||
+            (command.excludeOperator && command.excludeOperator.includes(inputState.operator)) ||
             !(match = commandMatch(keys, command.keys))) { continue; }
         if (match == 'partial') { partial.push(command); }
         if (match == 'full') { full.push(command); }
@@ -4050,7 +4214,7 @@
       if (cm.openDialog) {
         cm.openDialog(template, onClose, { bottom: true, value: options.value,
             onKeyDown: options.onKeyDown, onKeyUp: options.onKeyUp,
-            selectValueOnOpen: false});
+            selectValueOnOpen: false, onClose: options.onCloseDialog});
       }
       else {
         onClose(prompt(shortText, ''));
