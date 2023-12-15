@@ -77,6 +77,7 @@ mode\mermaid\mermaid.js ^
 mode\protobuf\protobuf.js ^
 mode\vb\vb.js ^
 mode\vhdl\vhdl.js ^
+mode\toml\toml.js ^
 keymap\emacs.js ^
 keymap\sublime.js ^
 keymap\vim.js
