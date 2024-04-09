@@ -506,8 +506,8 @@
             "class", dv.classes.connect);
     }
     if (dv.copyButtons) {
-      var leftButton = typeof dv.getLeftRevertButton === 'function' && dv.getLeftRevertButton();
-      var rightButton = typeof dv.getRightRevertButton === 'function' && dv.getRightRevertButton();
+      var leftButton = typeof dv.getLeftRevertButton === 'function' && dv.getLeftRevertButton("CodeMirror-merge-copy");
+      var rightButton = typeof dv.getRightRevertButton === 'function' && dv.getRightRevertButton("CodeMirror-merge-copy");
       var useGeneratedButton = leftButton && rightButton
 
       var btnElem = useGeneratedButton ? (dv.type == "left" ? rightButton : leftButton) : elt("div", dv.type == "left" ? dv.rightRevertButtonText : dv.leftRevertButtonText, "CodeMirror-merge-copy");
@@ -519,6 +519,8 @@
       copy.setAttribute("role", "button");
 
       if (editOriginals) {
+        var leftButton = typeof dv.getLeftRevertButton === 'function' && dv.getLeftRevertButton("CodeMirror-merge-copy-reverse");
+        var rightButton = typeof dv.getRightRevertButton === 'function' && dv.getRightRevertButton("CodeMirror-merge-copy-reverse");
         var topReverse = dv.edit.heightAtLine(chunk.editFrom, "local") - sTopEdit;
         var btnElem = useGeneratedButton ? (dv.type == "right" ? rightButton : leftButton) : elt("div", dv.type == "right" ? dv.rightRevertButtonText : dv.leftRevertButtonText, "CodeMirror-merge-copy-reverse");
         var copyReverse = dv.copyButtons.appendChild(btnElem);
