@@ -56,6 +56,10 @@
       this.needsScrollSync = null
 
       this.showDifferences = options.showDifferences !== false;
+      this.leftRevertButtonText = options.leftRevertButtonText || '\u21dc'
+      this.rightRevertButtonText = options.rightRevertButtonText || '\u21dd'
+      this.getLeftRevertButton = options.getLeftRevertButton
+      this.getRightRevertButton = options.getRightRevertButton
     },
     registerEvents: function(otherDv) {
       this.forceUpdate = registerUpdate(this);
@@ -502,8 +506,12 @@
             "class", dv.classes.connect);
     }
     if (dv.copyButtons) {
-      var copy = dv.copyButtons.appendChild(elt("div", dv.type == "left" ? "\u21dd" : "\u21dc",
-                                                "CodeMirror-merge-copy"));
+      var leftButton = typeof dv.getLeftRevertButton === 'function' && dv.getLeftRevertButton();
+      var rightButton = typeof dv.getRightRevertButton === 'function' && dv.getRightRevertButton();
+      var useGeneratedButton = leftButton && rightButton
+
+      var btnElem = useGeneratedButton ? (dv.type == "left" ? rightButton : leftButton) : elt("div", dv.type == "left" ? dv.rightRevertButtonText : dv.leftRevertButtonText, "CodeMirror-merge-copy");
+      var copy = dv.copyButtons.appendChild(btnElem);
       var editOriginals = dv.mv.options.allowEditingOriginals;
       copy.title = dv.edit.phrase(editOriginals ? "Push to left" : "Revert chunk");
       copy.chunk = chunk;
@@ -512,8 +520,8 @@
 
       if (editOriginals) {
         var topReverse = dv.edit.heightAtLine(chunk.editFrom, "local") - sTopEdit;
-        var copyReverse = dv.copyButtons.appendChild(elt("div", dv.type == "right" ? "\u21dd" : "\u21dc",
-                                                         "CodeMirror-merge-copy-reverse"));
+        var btnElem = useGeneratedButton ? (dv.type == "right" ? rightButton : leftButton) : elt("div", dv.type == "right" ? dv.rightRevertButtonText : dv.leftRevertButtonText, "CodeMirror-merge-copy-reverse");
+        var copyReverse = dv.copyButtons.appendChild(btnElem);
         copyReverse.title = "Push to right";
         copyReverse.chunk = {editFrom: chunk.origFrom, editTo: chunk.origTo,
                              origFrom: chunk.editFrom, origTo: chunk.editTo};
