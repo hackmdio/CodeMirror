@@ -51,7 +51,7 @@
       this.classes.classLocation = classLocation
 
       this.diff = getDiff(asString(orig), asString(options.value), this.mv.options.ignoreWhitespace);
-      this.chunks = getChunks(this.diff);
+      this.chunks = getChunks(this.diff, this.mv.options.chunkPerLine);
       this.diffOutOfDate = this.dealigned = false;
       this.needsScrollSync = null
 
@@ -78,7 +78,7 @@
   function ensureDiff(dv) {
     if (dv.diffOutOfDate) {
       dv.diff = getDiff(dv.orig.getValue(), dv.edit.getValue(), dv.mv.options.ignoreWhitespace);
-      dv.chunks = getChunks(dv.diff);
+      dv.chunks = getChunks(dv.diff, dv.mv.options.chunkPerLine);
       dv.diffOutOfDate = false;
       CodeMirror.signal(dv.edit, "updateDiff", dv.diff);
     }
@@ -101,8 +101,8 @@
       }
       ensureDiff(dv);
       if (dv.showDifferences) {
-        updateMarks(dv.edit, dv.diff, edit, DIFF_INSERT, dv.classes);
-        updateMarks(dv.orig, dv.diff, orig, DIFF_DELETE, dv.classes);
+        updateMarks(dv.edit, dv.diff, edit, DIFF_INSERT, dv.classes, dv.chunks, dv.mv.options.chunkPerLine);
+        updateMarks(dv.orig, dv.diff, orig, DIFF_DELETE, dv.classes, dv.chunks, dv.mv.options.chunkPerLine);
       }
 
       if (dv.mv.options.connect == "align")
@@ -242,20 +242,20 @@
   }
 
   // FIXME maybe add a margin around viewport to prevent too many updates
-  function updateMarks(editor, diff, state, type, classes) {
+  function updateMarks(editor, diff, state, type, classes, chunks, chunkPerLine) {
     var vp = editor.getViewport();
     editor.operation(function() {
       if (state.from == state.to || vp.from - state.to > 20 || state.from - vp.to > 20) {
         clearMarks(editor, state.marked, classes);
-        markChanges(editor, diff, type, state.marked, vp.from, vp.to, classes);
+        markChanges(editor, diff, type, state.marked, vp.from, vp.to, classes, chunks, chunkPerLine);
         state.from = vp.from; state.to = vp.to;
       } else {
         if (vp.from < state.from) {
-          markChanges(editor, diff, type, state.marked, vp.from, state.from, classes);
+          markChanges(editor, diff, type, state.marked, vp.from, state.from, classes, chunks, chunkPerLine);
           state.from = vp.from;
         }
         if (vp.to > state.to) {
-          markChanges(editor, diff, type, state.marked, state.to, vp.to, classes);
+          markChanges(editor, diff, type, state.marked, state.to, vp.to, classes, chunks, chunkPerLine);
           state.to = vp.to;
         }
       }
@@ -272,7 +272,7 @@
     return line;
   }
 
-  function markChanges(editor, diff, type, marks, from, to, classes) {
+  function markChanges(editor, diff, type, marks, from, to, classes, chunks, chunkPerLine) {
     var pos = Pos(0, 0);
     var top = Pos(from, 0), bot = editor.clipPos(Pos(to - 1));
     var cls = type == DIFF_DELETE ? classes.del : classes.insert;
@@ -289,6 +289,14 @@
       }
     }
 
+    if (chunkPerLine) {
+      for (var i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        if (type === DIFF_DELETE) markChunk(chunk.origFrom, chunk.origTo);
+        else markChunk(chunk.editFrom, chunk.editTo);
+      }
+    }
+
     var chunkStart = 0, pending = false;
     for (var i = 0; i < diff.length; ++i) {
       var part = diff[i], tp = part[0], str = part[1];
@@ -297,7 +305,10 @@
         moveOver(pos, str);
         var cleanTo = pos.line + (endOfLineClean(diff, i) ? 1 : 0);
         if (cleanTo > cleanFrom) {
-          if (pending) { markChunk(chunkStart, cleanFrom); pending = false }
+          if (pending) {
+            if (!chunkPerLine) markChunk(chunkStart, cleanFrom);
+            pending = false;
+          }
           chunkStart = cleanTo;
         }
       } else {
@@ -424,7 +435,12 @@
     if (other)
       mergeAlignable(result, alignableFor(other.orig, other.chunks, true), other.chunks, 2)
 
-    return result
+    if (!dv.mv.options.chunkPerLine) return result
+    return result.map(function (r) {
+      if (r[1] !== null) return r
+      r[1] = r[0]
+      return r
+    })
   }
 
   function alignChunks(dv, force) {
@@ -472,8 +488,11 @@
     }
     for (var i = 0; i < cm.length; i++) if (lines[i] != null) {
       var diff = maxOffset - offset[i];
-      if (diff > 1)
+      if (diff > 1 && i === 0) {
         aligners.push(padAbove(cm[i], lines[i], diff));
+      } else if (diff > 1) {
+        aligners.push(padBelow(cm[i], lines[i] - 1, diff));
+      }
     }
   }
 
@@ -487,6 +506,13 @@
     elt.className = "CodeMirror-merge-spacer";
     elt.style.height = size + "px"; elt.style.minWidth = "1px";
     return cm.addLineWidget(line, elt, {height: size, above: above, mergeSpacer: true, handleMouseEvents: true});
+  }
+
+  function padBelow(cm, line, size) {
+    var elt = document.createElement("div");
+    elt.className = "CodeMirror-merge-spacer";
+    elt.style.height = size + "px"; elt.style.minWidth = "1px";
+    return cm.addLineWidget(line, elt, {height: size, above: false, mergeSpacer: true, handleMouseEvents: true});
   }
 
   function drawConnectorsForChunk(dv, chunk, sTopOrig, sTopEdit, w) {
@@ -679,7 +705,7 @@
     return diff;
   }
 
-  function getChunks(diff) {
+  function getChunks(diff, chunkPerLine) {
     var chunks = [];
     if (!diff.length) return chunks;
     var startEdit = 0, startOrig = 0;
@@ -704,7 +730,30 @@
     if (startEdit <= edit.line || startOrig <= orig.line)
       chunks.push({origFrom: startOrig, origTo: orig.line + 1,
                    editFrom: startEdit, editTo: edit.line + 1});
-    return chunks;
+    if (chunkPerLine) return separateChunks(chunks);
+    return chunks
+  }
+
+  // separate chunks if original and edited text are
+  function separateChunks(chunks) {
+    const newChunks = [];
+    for (var i = 0; i < chunks.length; i++) {
+      const origDiff = chunks[i].origTo - chunks[i].origFrom;
+      const editDiff = chunks[i].editTo - chunks[i].editFrom;
+      if (origDiff !== editDiff) {
+        newChunks.push(chunks[i]);
+      } else {
+        for (var j = 0; j < origDiff; j++) {
+          newChunks.push({
+            origFrom: chunks[i].origFrom + j,
+            origTo: chunks[i].origFrom + j + 1,
+            editFrom: chunks[i].editFrom + j,
+            editTo: chunks[i].editFrom + j + 1,
+          });
+        }
+      }
+    }
+    return newChunks;
   }
 
   function endOfLineClean(diff, i) {
