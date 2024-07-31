@@ -422,6 +422,7 @@
   }
 
   function findAlignedLines(dv, other) {
+    if (dv.mv.options.chunkPerLine) return findAlignedLinesByChunks(dv.chunks)
     var alignable = alignableFor(dv.edit, dv.chunks, false), result = []
     if (other) for (var i = 0, j = 0; i < other.chunks.length; i++) {
       var n = other.chunks[i].editTo
@@ -435,12 +436,19 @@
     if (other)
       mergeAlignable(result, alignableFor(other.orig, other.chunks, true), other.chunks, 2)
 
-    if (!dv.mv.options.chunkPerLine) return result
-    return result.map(function (r) {
-      if (r[1] !== null) return r
-      r[1] = r[0]
-      return r
-    })
+    return result
+  }
+
+  /**
+   * @param {Chunk[]} chunks
+   */
+  function findAlignedLinesByChunks(chunks) {
+    const alignedEnds = []
+    for (var i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i]
+      alignedEnds.push([chunk.editTo, chunk.origTo, null])
+    }
+    return alignedEnds
   }
 
   function alignChunks(dv, force) {
@@ -706,6 +714,7 @@
   }
 
   function getChunks(diff, chunkPerLine) {
+    if (chunkPerLine) return getLineChunks(diff);
     var chunks = [];
     if (!diff.length) return chunks;
     var startEdit = 0, startOrig = 0;
@@ -730,30 +739,101 @@
     if (startEdit <= edit.line || startOrig <= orig.line)
       chunks.push({origFrom: startOrig, origTo: orig.line + 1,
                    editFrom: startEdit, editTo: edit.line + 1});
-    if (chunkPerLine) return separateChunks(chunks);
     return chunks
   }
 
-  // separate chunks if original and edited text are
-  function separateChunks(chunks) {
-    const newChunks = [];
-    for (var i = 0; i < chunks.length; i++) {
-      const origDiff = chunks[i].origTo - chunks[i].origFrom;
-      const editDiff = chunks[i].editTo - chunks[i].editFrom;
-      if (origDiff !== editDiff) {
-        newChunks.push(chunks[i]);
-      } else {
-        for (var j = 0; j < origDiff; j++) {
-          newChunks.push({
-            origFrom: chunks[i].origFrom + j,
-            origTo: chunks[i].origFrom + j + 1,
-            editFrom: chunks[i].editFrom + j,
-            editTo: chunks[i].editFrom + j + 1,
-          });
+  function getLineChunks(diffs) {
+    const chunks = []
+    var origLine = 0
+    var editLine = 0
+    for (var i = 0; i < diffs.length; i++) {
+      const diff = diffs[i]
+
+      const lines = countChar(diff[1], '\n')
+      const origStart = origLine
+      const editStart = editLine
+      switch(diff[0]) {
+        case DIFF_EQUAL: {
+          origLine += lines
+          editLine += lines
+          break
+        }
+        case DIFF_INSERT: {
+          editLine += lines
+          break
+        }
+        case DIFF_DELETE: {
+          origLine += lines
+          break
         }
       }
+      const origEnd = origLine + 1
+      const editEnd = editLine + 1
+
+      if (diff[0] === DIFF_EQUAL) continue
+      chunks.push({
+        origFrom: origStart,
+        origTo: origEnd,
+        editFrom: editStart,
+        editTo: editEnd,
+      })
     }
-    return newChunks;
+    if (chunks.length === 0) return chunks
+
+    // combine overlapping chunks
+    const origCombined = combineChunks(
+      chunks,
+      function(prev, curr) {
+        const left = prev.origFrom
+        const right = prev.origTo
+        return (curr.origFrom >= left && curr.origFrom < right) ||
+          (curr.origTo >= left && curr.origTo < right)
+      }
+    )
+    const editCombined = combineChunks(
+      origCombined,
+      function(prev, curr) {
+        const left = prev.editFrom
+        const right = prev.editTo
+        return (curr.editFrom >= left && curr.editFrom < right) ||
+          (curr.editTo >= left && curr.editTo < right)
+      }
+    )
+
+    return editCombined
+  }
+
+  /**
+   * @typedef {{
+   *    origFrom: number
+   *    origTo: number
+   *    editFrom: number
+   *    editTo: number
+   * }} Chunk
+   * @param {Chunk[]} chunks
+   * @param {(prev: Chunk, curr: Chunk) => boolean} hasOverlap
+   */
+  function combineChunks(chunks, hasOverlap) {
+    if (chunks.length === 0) return []
+    const combined = [chunks[0]]
+    for (var i = 1; i < chunks.length; i++) {
+      const lastIdx = combined.length - 1
+      const overlapping = hasOverlap(combined[lastIdx], chunks[i])
+      if (!overlapping) combined.push(chunks[i])
+      else {
+        combined[lastIdx].origFrom = Math.min(combined[lastIdx].origFrom, chunks[i].origFrom)
+        combined[lastIdx].origTo = Math.max(combined[lastIdx].origTo, chunks[i].origTo)
+        combined[lastIdx].editFrom = Math.min(combined[lastIdx].editFrom, chunks[i].editFrom)
+        combined[lastIdx].editTo = Math.max(combined[lastIdx].editTo, chunks[i].editTo)
+      }
+    }
+    return combined
+  }
+
+  function countChar(str, ch) {
+    var occur = 0
+    for (var i = 0; i < str.length; i++) if (str[i] === ch) occur++
+    return occur
   }
 
   function endOfLineClean(diff, i) {
