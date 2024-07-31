@@ -479,15 +479,15 @@
     }
 
     if (offset[0] != offset[1] || cm.length == 3 && offset[1] != offset[2])
-      alignLines(cm, offset, [0, 0, 0], aligners)
+      alignLines(cm, offset, [0, 0, 0], aligners, dv.mv.options.padDirection)
     for (var ln = 0; ln < linesToAlign.length; ln++)
-      alignLines(cm, offset, linesToAlign[ln], aligners);
+      alignLines(cm, offset, linesToAlign[ln], aligners, dv.mv.options.padDirection);
 
     for (var i = 0; i < cm.length; i++)
       cm[i].scrollTo(null, scroll[i]);
   }
 
-  function alignLines(cm, cmOffset, lines, aligners) {
+  function alignLines(cm, cmOffset, lines, aligners, padDirection) {
     var maxOffset = -1e8, offset = [];
     for (var i = 0; i < cm.length; i++) if (lines[i] != null) {
       var off = cm[i].heightAtLine(lines[i], "local") - cmOffset[i];
@@ -496,12 +496,13 @@
     }
     for (var i = 0; i < cm.length; i++) if (lines[i] != null) {
       var diff = maxOffset - offset[i];
-      if (diff > 1 && i === 0) {
-        aligners.push(padAbove(cm[i], lines[i], diff));
-      } else if (diff > 1) {
-        aligners.push(padBelow(cm[i], lines[i] - 1, diff));
-      }
+      if (diff > 1) aligners.push(padAlign(cm[i], lines[i] - 1, diff, padDirection));
     }
+  }
+
+  function padAlign(cm, line, size, padDirection) {
+    if (padDirection === 'below') return padBelow(cm, line, size)
+    return padAbove(cm, line, size)
   }
 
   function padAbove(cm, line, size) {
