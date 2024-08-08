@@ -345,7 +345,7 @@
       var ch = dv.chunks[i];
       if (ch.editFrom <= vpEdit.to && ch.editTo >= vpEdit.from &&
           ch.origFrom <= vpOrig.to && ch.origTo >= vpOrig.from)
-        drawConnectorsForChunk(dv, ch, sTopOrig, sTopEdit, w);
+        drawConnectorsForChunk(dv, ch, sTopOrig, sTopEdit, w, i);
     }
   }
 
@@ -524,7 +524,7 @@
     return cm.addLineWidget(line, elt, {height: size, above: false, mergeSpacer: true, handleMouseEvents: true});
   }
 
-  function drawConnectorsForChunk(dv, chunk, sTopOrig, sTopEdit, w) {
+  function drawConnectorsForChunk(dv, chunk, sTopOrig, sTopEdit, w, index) {
     var flip = dv.type == "left";
     var top = dv.orig.heightAtLine(chunk.origFrom, "local", true) - sTopOrig;
     if (dv.svg) {
@@ -552,6 +552,7 @@
       copy.chunk = chunk;
       copy.style.top = (chunk.origTo > chunk.origFrom ? top : dv.edit.heightAtLine(chunk.editFrom, "local") - sTopEdit) + "px";
       copy.setAttribute("role", "button");
+      copy.setAttribute("data-chunk-index", index);
 
       if (editOriginals) {
         var leftButton = typeof dv.getLeftRevertButton === 'function' && dv.getLeftRevertButton("CodeMirror-merge-copy-reverse");
@@ -565,6 +566,7 @@
         copyReverse.style.top = topReverse + "px";
         dv.type == "right" ? copyReverse.style.left = "2px" : copyReverse.style.right = "2px";
         copyReverse.setAttribute("role", "button");
+        copyReverse.setAttribute("data-chunk-index", index);
       }
     }
   }
