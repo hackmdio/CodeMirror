@@ -51,7 +51,7 @@
       this.classes.classLocation = classLocation
 
       this.diff = getDiff(asString(orig), asString(options.value), this.mv.options.ignoreWhitespace);
-      this.chunks = getChunks(this.diff);
+      this.chunks = getChunks(this.diff, this.mv.options.chunkPerLine);
       this.diffOutOfDate = this.dealigned = false;
       this.needsScrollSync = null
 
@@ -78,7 +78,7 @@
   function ensureDiff(dv) {
     if (dv.diffOutOfDate) {
       dv.diff = getDiff(dv.orig.getValue(), dv.edit.getValue(), dv.mv.options.ignoreWhitespace);
-      dv.chunks = getChunks(dv.diff);
+      dv.chunks = getChunks(dv.diff, dv.mv.options.chunkPerLine);
       dv.diffOutOfDate = false;
       CodeMirror.signal(dv.edit, "updateDiff", dv.diff);
     }
@@ -101,8 +101,8 @@
       }
       ensureDiff(dv);
       if (dv.showDifferences) {
-        updateMarks(dv.edit, dv.diff, edit, DIFF_INSERT, dv.classes);
-        updateMarks(dv.orig, dv.diff, orig, DIFF_DELETE, dv.classes);
+        updateMarks(dv.edit, dv.diff, edit, DIFF_INSERT, dv.classes, dv.chunks, dv.mv.options.chunkPerLine);
+        updateMarks(dv.orig, dv.diff, orig, DIFF_DELETE, dv.classes, dv.chunks, dv.mv.options.chunkPerLine);
       }
 
       if (dv.mv.options.connect == "align")
@@ -242,20 +242,20 @@
   }
 
   // FIXME maybe add a margin around viewport to prevent too many updates
-  function updateMarks(editor, diff, state, type, classes) {
+  function updateMarks(editor, diff, state, type, classes, chunks, chunkPerLine) {
     var vp = editor.getViewport();
     editor.operation(function() {
       if (state.from == state.to || vp.from - state.to > 20 || state.from - vp.to > 20) {
         clearMarks(editor, state.marked, classes);
-        markChanges(editor, diff, type, state.marked, vp.from, vp.to, classes);
+        markChanges(editor, diff, type, state.marked, vp.from, vp.to, classes, chunks, chunkPerLine);
         state.from = vp.from; state.to = vp.to;
       } else {
         if (vp.from < state.from) {
-          markChanges(editor, diff, type, state.marked, vp.from, state.from, classes);
+          markChanges(editor, diff, type, state.marked, vp.from, state.from, classes, chunks, chunkPerLine);
           state.from = vp.from;
         }
         if (vp.to > state.to) {
-          markChanges(editor, diff, type, state.marked, state.to, vp.to, classes);
+          markChanges(editor, diff, type, state.marked, state.to, vp.to, classes, chunks, chunkPerLine);
           state.to = vp.to;
         }
       }
@@ -272,7 +272,7 @@
     return line;
   }
 
-  function markChanges(editor, diff, type, marks, from, to, classes) {
+  function markChanges(editor, diff, type, marks, from, to, classes, chunks, chunkPerLine) {
     var pos = Pos(0, 0);
     var top = Pos(from, 0), bot = editor.clipPos(Pos(to - 1));
     var cls = type == DIFF_DELETE ? classes.del : classes.insert;
@@ -289,6 +289,14 @@
       }
     }
 
+    if (chunkPerLine) {
+      for (var i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        if (type === DIFF_DELETE) markChunk(chunk.origFrom, chunk.origTo);
+        else markChunk(chunk.editFrom, chunk.editTo);
+      }
+    }
+
     var chunkStart = 0, pending = false;
     for (var i = 0; i < diff.length; ++i) {
       var part = diff[i], tp = part[0], str = part[1];
@@ -297,7 +305,10 @@
         moveOver(pos, str);
         var cleanTo = pos.line + (endOfLineClean(diff, i) ? 1 : 0);
         if (cleanTo > cleanFrom) {
-          if (pending) { markChunk(chunkStart, cleanFrom); pending = false }
+          if (pending) {
+            if (!chunkPerLine) markChunk(chunkStart, cleanFrom);
+            pending = false;
+          }
           chunkStart = cleanTo;
         }
       } else {
@@ -334,7 +345,7 @@
       var ch = dv.chunks[i];
       if (ch.editFrom <= vpEdit.to && ch.editTo >= vpEdit.from &&
           ch.origFrom <= vpOrig.to && ch.origTo >= vpOrig.from)
-        drawConnectorsForChunk(dv, ch, sTopOrig, sTopEdit, w);
+        drawConnectorsForChunk(dv, ch, sTopOrig, sTopEdit, w, i);
     }
   }
 
@@ -411,6 +422,7 @@
   }
 
   function findAlignedLines(dv, other) {
+    if (dv.mv.options.chunkPerLine) return findAlignedLinesByChunks(dv.chunks)
     var alignable = alignableFor(dv.edit, dv.chunks, false), result = []
     if (other) for (var i = 0, j = 0; i < other.chunks.length; i++) {
       var n = other.chunks[i].editTo
@@ -425,6 +437,18 @@
       mergeAlignable(result, alignableFor(other.orig, other.chunks, true), other.chunks, 2)
 
     return result
+  }
+
+  /**
+   * @param {Chunk[]} chunks
+   */
+  function findAlignedLinesByChunks(chunks) {
+    const alignedEnds = []
+    for (var i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i]
+      alignedEnds.push([chunk.editTo, chunk.origTo, null])
+    }
+    return alignedEnds
   }
 
   function alignChunks(dv, force) {
@@ -455,15 +479,15 @@
     }
 
     if (offset[0] != offset[1] || cm.length == 3 && offset[1] != offset[2])
-      alignLines(cm, offset, [0, 0, 0], aligners)
+      alignLines(cm, offset, [0, 0, 0], aligners, dv.mv.options.padDirection)
     for (var ln = 0; ln < linesToAlign.length; ln++)
-      alignLines(cm, offset, linesToAlign[ln], aligners);
+      alignLines(cm, offset, linesToAlign[ln], aligners, dv.mv.options.padDirection);
 
     for (var i = 0; i < cm.length; i++)
       cm[i].scrollTo(null, scroll[i]);
   }
 
-  function alignLines(cm, cmOffset, lines, aligners) {
+  function alignLines(cm, cmOffset, lines, aligners, padDirection) {
     var maxOffset = -1e8, offset = [];
     for (var i = 0; i < cm.length; i++) if (lines[i] != null) {
       var off = cm[i].heightAtLine(lines[i], "local") - cmOffset[i];
@@ -472,9 +496,13 @@
     }
     for (var i = 0; i < cm.length; i++) if (lines[i] != null) {
       var diff = maxOffset - offset[i];
-      if (diff > 1)
-        aligners.push(padAbove(cm[i], lines[i], diff));
+      if (diff > 1) aligners.push(padAlign(cm[i], lines[i] - 1, diff, padDirection));
     }
+  }
+
+  function padAlign(cm, line, size, padDirection) {
+    if (padDirection === 'below') return padBelow(cm, line, size)
+    return padAbove(cm, line, size)
   }
 
   function padAbove(cm, line, size) {
@@ -489,7 +517,14 @@
     return cm.addLineWidget(line, elt, {height: size, above: above, mergeSpacer: true, handleMouseEvents: true});
   }
 
-  function drawConnectorsForChunk(dv, chunk, sTopOrig, sTopEdit, w) {
+  function padBelow(cm, line, size) {
+    var elt = document.createElement("div");
+    elt.className = "CodeMirror-merge-spacer";
+    elt.style.height = size + "px"; elt.style.minWidth = "1px";
+    return cm.addLineWidget(line, elt, {height: size, above: false, mergeSpacer: true, handleMouseEvents: true});
+  }
+
+  function drawConnectorsForChunk(dv, chunk, sTopOrig, sTopEdit, w, index) {
     var flip = dv.type == "left";
     var top = dv.orig.heightAtLine(chunk.origFrom, "local", true) - sTopOrig;
     if (dv.svg) {
@@ -517,6 +552,7 @@
       copy.chunk = chunk;
       copy.style.top = (chunk.origTo > chunk.origFrom ? top : dv.edit.heightAtLine(chunk.editFrom, "local") - sTopEdit) + "px";
       copy.setAttribute("role", "button");
+      copy.setAttribute("data-chunk-index", index);
 
       if (editOriginals) {
         var leftButton = typeof dv.getLeftRevertButton === 'function' && dv.getLeftRevertButton("CodeMirror-merge-copy-reverse");
@@ -530,6 +566,7 @@
         copyReverse.style.top = topReverse + "px";
         dv.type == "right" ? copyReverse.style.left = "2px" : copyReverse.style.right = "2px";
         copyReverse.setAttribute("role", "button");
+        copyReverse.setAttribute("data-chunk-index", index);
       }
     }
   }
@@ -679,7 +716,8 @@
     return diff;
   }
 
-  function getChunks(diff) {
+  function getChunks(diff, chunkPerLine) {
+    if (chunkPerLine) return getLineChunks(diff);
     var chunks = [];
     if (!diff.length) return chunks;
     var startEdit = 0, startOrig = 0;
@@ -704,7 +742,101 @@
     if (startEdit <= edit.line || startOrig <= orig.line)
       chunks.push({origFrom: startOrig, origTo: orig.line + 1,
                    editFrom: startEdit, editTo: edit.line + 1});
-    return chunks;
+    return chunks
+  }
+
+  function getLineChunks(diffs) {
+    const chunks = []
+    var origLine = 0
+    var editLine = 0
+    for (var i = 0; i < diffs.length; i++) {
+      const diff = diffs[i]
+
+      const lines = countChar(diff[1], '\n')
+      const origStart = origLine
+      const editStart = editLine
+      switch(diff[0]) {
+        case DIFF_EQUAL: {
+          origLine += lines
+          editLine += lines
+          break
+        }
+        case DIFF_INSERT: {
+          editLine += lines
+          break
+        }
+        case DIFF_DELETE: {
+          origLine += lines
+          break
+        }
+      }
+      const origEnd = origLine + 1
+      const editEnd = editLine + 1
+
+      if (diff[0] === DIFF_EQUAL) continue
+      chunks.push({
+        origFrom: origStart,
+        origTo: origEnd,
+        editFrom: editStart,
+        editTo: editEnd,
+      })
+    }
+    if (chunks.length === 0) return chunks
+
+    // combine overlapping chunks
+    const origCombined = combineChunks(
+      chunks,
+      function(prev, curr) {
+        const left = prev.origFrom
+        const right = prev.origTo
+        return (curr.origFrom >= left && curr.origFrom < right) ||
+          (curr.origTo >= left && curr.origTo < right)
+      }
+    )
+    const editCombined = combineChunks(
+      origCombined,
+      function(prev, curr) {
+        const left = prev.editFrom
+        const right = prev.editTo
+        return (curr.editFrom >= left && curr.editFrom < right) ||
+          (curr.editTo >= left && curr.editTo < right)
+      }
+    )
+
+    return editCombined
+  }
+
+  /**
+   * @typedef {{
+   *    origFrom: number
+   *    origTo: number
+   *    editFrom: number
+   *    editTo: number
+   * }} Chunk
+   * @param {Chunk[]} chunks
+   * @param {(prev: Chunk, curr: Chunk) => boolean} hasOverlap
+   */
+  function combineChunks(chunks, hasOverlap) {
+    if (chunks.length === 0) return []
+    const combined = [chunks[0]]
+    for (var i = 1; i < chunks.length; i++) {
+      const lastIdx = combined.length - 1
+      const overlapping = hasOverlap(combined[lastIdx], chunks[i])
+      if (!overlapping) combined.push(chunks[i])
+      else {
+        combined[lastIdx].origFrom = Math.min(combined[lastIdx].origFrom, chunks[i].origFrom)
+        combined[lastIdx].origTo = Math.max(combined[lastIdx].origTo, chunks[i].origTo)
+        combined[lastIdx].editFrom = Math.min(combined[lastIdx].editFrom, chunks[i].editFrom)
+        combined[lastIdx].editTo = Math.max(combined[lastIdx].editTo, chunks[i].editTo)
+      }
+    }
+    return combined
+  }
+
+  function countChar(str, ch) {
+    var occur = 0
+    for (var i = 0; i < str.length; i++) if (str[i] === ch) occur++
+    return occur
   }
 
   function endOfLineClean(diff, i) {
