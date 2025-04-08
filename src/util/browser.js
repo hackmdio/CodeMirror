@@ -30,4 +30,4 @@ if (presto_version) presto_version = Number(presto_version[1])
 if (presto_version && presto_version >= 15) { presto = false; webkit = true }
 // Some browsers use the wrong event properties to signal cmd/ctrl on OS X
 export let flipCtrlCmd = mac && (qtwebkit || presto && (presto_version == null || presto_version < 12.11))
-export let captureRightClick = gecko || (ie && ie_version >= 9)
+export let captureRightClick = ie && ie_version >= 9
