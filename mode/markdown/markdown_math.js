@@ -248,7 +248,32 @@ CodeMirror.defineMode("markdown", function(cmCfg, modeCfg) {
       state.code = -1
       return getType(state);
     } else if (firstTokenOnLine && state.indentation <= maxNonCodeIndentation && (match = stream.match(fencedMathRE, true))) {
-      state.fencedEndRE = new RegExp(match[1].replace(/\$/g, '\\$') + "+ *$");
+      // match[0] is the whole line
+      // match[1] is the opening fence "$$"
+      // match[2] is the optional language / mode name
+      var wholeLine = match[0];
+      var openingFence = match[1];
+
+      // Everything after the opening "$$"
+      var rest = wholeLine.slice(openingFence.length);
+
+      // If there's another "$$" in the rest of the line, treat this as
+      // a single-line math block: $$ ... $$.
+      var closingIndex = rest.indexOf("$$");
+
+      if (closingIndex !== -1) {
+        // Single-line $$ ... $$: highlight as math, but do NOT enter
+        // multi-line fenced math mode.
+
+        state.formatting = "math";
+        state.math = 0; // not in a multi-line math block
+        // We've already consumed the whole line via stream.match(..., true)
+        // so just return the math token type for this line.
+        return tokenTypes.math;
+      }
+
+      // Otherwise fall back to the original behavior: multi-line fenced math
+      state.fencedEndRE = new RegExp(openingFence.replace(/\$/g, '\\$') + "+ *$");
       // try switching mode
       state.localMode = modeCfg.fencedCodeBlockHighlighting && getMode(match[2] || modeCfg.fencedCodeBlockDefaultMode );
       if (state.localMode) state.localState = CodeMirror.startState(state.localMode);
