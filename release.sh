@@ -87,6 +87,7 @@ mode/protobuf/protobuf.js \
 mode/vb/vb.js \
 mode/vhdl/vhdl.js \
 mode/toml/toml.js \
+mode/erlang/erlang.js \
 keymap/emacs.js \
 keymap/sublime.js \
 keymap/vim.js
