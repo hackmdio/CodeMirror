@@ -355,9 +355,14 @@ export default class TextareaInput {
       e_stop(e)
       let mouseup = () => {
         off(window, "mouseup", mouseup)
+        off(window, "contextmenu", mouseup)
         setTimeout(rehide, 20)
       }
       on(window, "mouseup", mouseup)
+      // Modern Firefox doesn't fire mouseup on window when the native
+      // context menu opens, but it fires contextmenu right after the
+      // mousedown that triggered this hack (#27).
+      on(window, "contextmenu", mouseup)
     } else {
       setTimeout(rehide, 50)
     }
