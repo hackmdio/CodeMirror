@@ -1,29 +1,113 @@
 name: Publish Package
 
+# Publishes @hackmd/codemirror with npm trusted publishing (OIDC): no npm
+# token is stored in this repo. The trusted publisher on npmjs.com must name
+# this file (publish.yml) and no environment. See RELEASING.md.
+
 on:
   push:
     tags:
       - '[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Build, test and pack without publishing. Unticking it only publishes when run from a version tag.
+        type: boolean
+        default: true
 
 permissions:
-  id-token: write
   contents: read
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
+      # No registry-url: setup-node would then write an .npmrc that reads
+      # NODE_AUTH_TOKEN, and trusted publishing needs no token.
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          registry-url: 'https://registry.npmjs.org'
+          node-version: '24'
 
-      - run: npm ci
+      # Trusted publishing needs npm >= 11.5.1. Stay on npm 11: newer majors
+      # may skip puppeteer's install script, which downloads Chromium for tests.
+      - name: Ensure npm >= 11.5.1
+        run: |
+          current="$(npm --version)"
+          if [ "$(printf '%s\n' 11.5.1 "$current" | sort -V | head -n1)" != 11.5.1 ]; then
+            npm install -g npm@11
+          fi
+          npm --version
 
-      - run: npm run build --if-present
+      - name: Check tag and version
+        id: version
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          name="$(node -p 'require("./package.json").name')"
+          version="$(node -p 'require("./package.json").version')"
+
+          if [ "$REF_TYPE" = tag ]; then
+            if [ "$REF_NAME" != "$version" ]; then
+              echo "::error::Tag '$REF_NAME' does not match package.json version '$version'."
+              exit 1
+            fi
+          elif [ "$DRY_RUN" != true ]; then
+            echo "::error::Real publishes must run from a version tag, not '$REF_NAME'. Push the tag, or tick dry-run."
+            exit 1
+          fi
+
+          published=false
+          if [ "$(npm view "$name@$version" version 2>/dev/null)" = "$version" ]; then
+            if [ "$DRY_RUN" = true ]; then
+              echo "::warning::$name@$version is already on npm, so this dry run packs the tarball instead of calling npm publish --dry-run."
+              published=true
+            else
+              echo "::error::$name@$version is already published on npm. Bump the version first."
+              exit 1
+            fi
+          fi
+
+          case "$version" in
+            *-*) dist_tag=next ;;
+            *) dist_tag=latest ;;
+          esac
+
+          echo "$name@$version, dist-tag '$dist_tag', dry run: ${DRY_RUN:-false}"
+          echo "published=$published" >> "$GITHUB_OUTPUT"
+          echo "dist-tag=$dist_tag" >> "$GITHUB_OUTPUT"
+
+      # No lockfile is committed (.gitignore excludes it), so `npm ci` can't run.
+      - run: npm install --no-audit --no-fund
+
+      - run: npm run build
 
       - run: npm test
 
-      - run: npm publish
+      # prepublishOnly rebuilds and runs ./release (minifies codemirror.min.js);
+      # if either fails, npm aborts before uploading anything.
+      - name: Publish
+        if: steps.version.outputs.published != 'true'
+        env:
+          DIST_TAG: ${{ steps.version.outputs.dist-tag }}
+          DRY_RUN_FLAG: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run && '--dry-run' || '' }}
+        run: npm publish --provenance --access public --tag "$DIST_TAG" $DRY_RUN_FLAG
+
+      - name: Pack (dry run of an already-published version)
+        if: steps.version.outputs.published == 'true'
+        run: |
+          npm run prepublishOnly
+          npm pack --dry-run
