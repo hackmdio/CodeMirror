@@ -45,3 +45,5 @@ step.
 To build the project, make sure you have Node.js installed (at least version 6)
 and then `npm install`. To run, just open `index.html` in your
 browser (you don't need to run a webserver). Run the tests with `npm test`.
+
+Releasing `@hackmd/codemirror`: see [RELEASING.md](RELEASING.md).
