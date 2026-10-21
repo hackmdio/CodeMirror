@@ -1,0 +1,130 @@
+name: Bump Version
+
+# Bumps package.json on master, tags the commit with the bare version and
+# dispatches publish.yml on that tag. The tag is pushed with GITHUB_TOKEN,
+# which doesn't trigger publish.yml's tag-push run, so the dispatch is what
+# publishes. publish.yml must stay a top-level run (not workflow_call): npm
+# checks the trusted publisher filename against the calling workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version increment (ignored when version is set)
+        type: choice
+        options: [patch, minor, major, prerelease]
+        default: patch
+      version:
+        description: Explicit version, e.g. 5.66.0 (optional, overrides bump)
+        type: string
+        default: ''
+      preid:
+        description: Pre-release identifier for prerelease, e.g. beta (optional)
+        type: string
+        default: ''
+      dry-run:
+        description: Bump, build and test, but don't push, tag or publish
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: version-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+
+    steps:
+      - name: Require the default branch
+        if: github.ref_name != github.event.repository.default_branch
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          echo "::error::Run this workflow from master, not '$REF_NAME'."
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Bump package.json
+        id: bump
+        env:
+          BUMP: ${{ inputs.bump }}
+          VERSION: ${{ inputs.version }}
+          PREID: ${{ inputs.preid }}
+        run: |
+          name="$(node -p 'require("./package.json").name')"
+          current="$(node -p 'require("./package.json").version')"
+
+          if [ -n "$VERSION" ]; then
+            npm version "${VERSION#v}" --no-git-tag-version
+          elif [ "$BUMP" = prerelease ] && [ -n "$PREID" ]; then
+            npm version prerelease --preid "$PREID" --no-git-tag-version
+          else
+            npm version "$BUMP" --no-git-tag-version
+          fi
+          version="$(node -p 'require("./package.json").version')"
+
+          if ! npx --yes semver@7 --include-prerelease --range ">$current" "$version" >/dev/null; then
+            echo "::error::$version is not greater than the current version $current."
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$version" >/dev/null; then
+            echo "::error::Tag $version already exists."
+            exit 1
+          fi
+          if [ "$(npm view "$name@$version" version 2>/dev/null)" = "$version" ]; then
+            echo "::error::$name@$version is already published on npm."
+            exit 1
+          fi
+
+          echo "Bumping $name from $current to $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # The bump commit skips CI, so test here before anything is pushed.
+      - run: npm install --no-audit --no-fund
+
+      - run: npm run build
+
+      - run: npm test
+
+      # [skip ci] only affects push/pull_request runs. The publish run below is
+      # a workflow_dispatch, so it isn't skipped.
+      - name: Commit, tag and push
+        if: ${{ !inputs.dry-run }}
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json
+          git commit -m "chore: bump version to $VERSION [skip ci]"
+          git tag -a "$VERSION" -m "$VERSION"
+          git push --atomic origin "HEAD:refs/heads/$GITHUB_REF_NAME" "refs/tags/$VERSION"
+
+      - name: Dispatch publish.yml on the tag
+        if: ${{ !inputs.dry-run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref "$VERSION" -f dry-run=false
+          echo "Tagged $VERSION and started [Publish Package]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/workflows/publish.yml)." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dry-run summary
+        if: ${{ inputs.dry-run }}
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          git --no-pager diff package.json
+          echo "Dry run: would commit, tag and publish $VERSION." >> "$GITHUB_STEP_SUMMARY"
