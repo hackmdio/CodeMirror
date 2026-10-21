@@ -12,3 +12,4 @@
 /bin/lint
 /bin/release
 /bin/upload-release.js
+/RELEASING.md
