@@ -3,6 +3,10 @@ name: Publish Package
 # Publishes @hackmd/codemirror with npm trusted publishing (OIDC): no npm
 # token is stored in this repo. The trusted publisher on npmjs.com must name
 # this file (publish.yml) and no environment. See RELEASING.md.
+#
+# bump-version.yml starts this workflow with workflow_dispatch on the new tag.
+# Keep it a top-level run: under workflow_call, npm would check the caller's
+# filename instead of publish.yml.
 
 on:
   push:
